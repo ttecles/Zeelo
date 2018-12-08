@@ -13,7 +13,7 @@ This module is intented for retrieving public transport information from a count
 - The following modules must be installed: `pip install requests pandas folium branca`
 
 ## Usage
-````python
+```python
 from zratrans import Zratrans
 
 #help(zratrans.Zratrans) for more information
@@ -31,5 +31,4 @@ z.show_top_cities()
 
 # returns a folium.Map object to show all the information
 z.get_map()
-
 ```
