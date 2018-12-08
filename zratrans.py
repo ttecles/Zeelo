@@ -1,6 +1,5 @@
 """
-Core functionality, common across all API requests (including performing
-HTTP requests).
+Core functionality, common across all API requests (including performing HTTP requests).
 """
 
 import requests
@@ -27,24 +26,19 @@ class Zratrans(object):
     def __new__(cls, *args, **kwargs):
         obj = super().__new__(cls)
 
+        # Get countries only first time a object is instantiated
         if not cls.countries:
             parameters = {"dataset": "geonames-country", "fields": "iso,country", "q": "population>0"}
-            response = requests.get(_DEFAULT_OPENDATASOFT_BASE_URL + _OPENDATASOFT_API_DOWNLOAD, params=parameters)
-
-            if response.status_code != 200:
-                raise HTTPError(response.status_code)
-
-            raw_data = StringIO(response.content.decode())
-            cls.countries = pd.read_csv(raw_data, header=0, index_col=0, sep=';', na_filter=False,
+            cls.countries = cls._get_csv_data(parameters=parameters, header=0, index_col=0, sep=';', na_filter=False,
                                         squeeze=True).to_dict()
         obj.countries = cls.countries
         return obj
 
     def __init__(self, gmaps_api_key):
-        """
+        """Constructor
 
         :param gmaps_api_key: Maps API key
-        :type gmaps_api_key: string
+        :type gmaps_api_key: str
         """
         self.__gmaps_api_key = gmaps_api_key
         self.cities = None  # Dataframe to save top nth percentil sorted by population
@@ -53,7 +47,7 @@ class Zratrans(object):
         self.origin_geopoint = None
 
     def retrive_cities(self, country, percentile):
-        """
+        """Get cities information from opendatasoft->worldcitypop dataset
 
         :param country: country cities in iso2 format.
             Check https://public.opendatasoft.com/explore/dataset/geonames-country/table/ for more information.
@@ -64,24 +58,20 @@ class Zratrans(object):
 
         :return: None
         """
-
+        # Input validations
         if percentile < 0 or percentile > 100:
             raise ValueError("percentile must be between 0 and 100")
 
         if country.upper() not in self.countries:
             raise ValueError("'%s' is not a valid country. Check available countries in "
                              + _DEFAULT_OPENDATASOFT_BASE_URL + '/explore/dataset/geonames-country/table/')
+
+        # Core function
         self.country = country.upper()
 
         parameters = {'dataset': 'worldcitiespop', 'refine.country': self.country.lower(), 'q': 'population>0',
                       'fields': "city,population,geopoint"}
-        response = requests.get(_DEFAULT_OPENDATASOFT_BASE_URL + _OPENDATASOFT_API_DOWNLOAD, params=parameters)
-
-        if response.status_code != 200:
-            raise HTTPError(response.status_code)
-
-        raw_data = StringIO(response.content.decode())
-        data = pd.read_csv(raw_data, header=0, sep=";")
+        data = self._get_csv_data(parameters = parameters, header=0, sep=";")
         p = data['population'].quantile(1 - percentile / 100)
 
         self.cities = data.loc[data['population'] > p].sort_values(by=['population'], ascending=False).drop_duplicates(subset='city')
@@ -101,22 +91,20 @@ class Zratrans(object):
         """
         self.origin = origin
 
-        # Geocode the origin address to check if its a valid adress, otherwise a ValueError will raise
+        # Geocode the origin address to check if its a valid address, otherwise a ValueError will raise
         self.origin_geopoint = self._geocode(self.origin)
         if not self.origin_geopoint:
             raise ValueError('Not a valid origin \'{}\''.format(origin))
-
-
 
         distance_d = []
         duration_d = []
         distance_t = []
         duration_t = []
         ratio = []
-        now = datetime.now()
+
         for i, row in self.cities.iterrows():
-            # we user dest as string and not the geopoint because Directions does not retrive results for transit mode
-            # on some cities if using geopoint
+            # we use dest as string and not the geopoint because Directions API does not retrive results for transit
+            # mode on some cities if using geopoint
             dest = row['city'] + ', ' + self.countries[self.country]
 
             # retrive directions in driving mode for the selected destination
@@ -154,9 +142,11 @@ class Zratrans(object):
             (self.cities['distance_driving'].mean() + self.cities['distance_transit'].mean()) / 2000))
 
     def show_top_cities(self, number=5):
-        """
+        """ shows top cities from full dataframe
 
-        :param number:
+        :param number: Number of cities to show
+        :type number: int
+
         :return: DataFrame with the top number cities
         """
 
@@ -164,7 +154,10 @@ class Zratrans(object):
         return self.cities.loc[:min(number, rows)-1]
 
     def get_map(self):
+        """ Print information graphicaly into a folium Map
 
+        :return: folium.Map object
+        """
         # Get geopoint from country
         try:
             center_geopoint = self._geocode(self.countries[self.country])
@@ -205,6 +198,26 @@ class Zratrans(object):
                 fill_color=color
             ).add_to(m)
         return m
+
+    @classmethod
+    def _get_csv_data(self, parameters, *args, **kwargs):
+        """
+        Function to retrive data from opendatasoft download API
+
+        :param parameters: request parameters
+        :type parameters: dict
+        :param args: additional parameters passed to pd.DataFrame.read_csv
+        :param kwargs: additional parameters passed to pd.DataFrame.read_csv
+        :return: pd.DataFrame
+        """
+        response = requests.get(_DEFAULT_OPENDATASOFT_BASE_URL + _OPENDATASOFT_API_DOWNLOAD, params=parameters)
+
+        if response.status_code != 200:
+            raise HTTPError(response.status_code)
+
+        raw_data = StringIO(response.content.decode())
+        return pd.read_csv(raw_data, *args, **kwargs)
+
 
     def _geocode(self, address):
         """Performs requests to the Google Maps Geocode API.
